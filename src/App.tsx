@@ -100,16 +100,24 @@ const Cell = ({
     maxWidth: "25px",
     maxHeight: "25px",
     outline: "solid black",
-    borderSpacing: "0px",
   };
-  const highlightCSS = (highlightType: HighlightType): CSSProperties => {
+  const highlightCSSInput = (highlightType: HighlightType): CSSProperties => {
     switch (highlightType) {
       case HighlightType.NONE:
         return {};
       case HighlightType.PRIMARY:
-        return { backgroundColor: "navy" };
+        return { backgroundColor: "#4A8FB5" };
       case HighlightType.SECONDARY:
-        return { backgroundColor: "red" };
+        return { backgroundColor: "#B5704A" };
+    }
+  };
+
+  const highlightCSSBlack = (highlightType: HighlightType): CSSProperties => {
+    switch (highlightType) {
+      case HighlightType.PRIMARY:
+        return { background: "linear-gradient(to right, #4A8FB5, #B5704A)" };
+      default:
+        return { backgroundColor: "black" };
     }
   };
 
@@ -120,7 +128,7 @@ const Cell = ({
           onClick={onClick}
           style={{
             ...minSquareCSS,
-            ...highlightCSS(highlightType),
+            ...highlightCSSInput(highlightType),
             fontSize: `${100 / Math.sqrt(cell.content.length)}%`,
             lineHeight: `${Math.sqrt(cell.content.length) * 150}%`,
           }}
@@ -131,8 +139,11 @@ const Cell = ({
       ) : (
         <div
           onClick={onClick}
-          style={{ backgroundColor: "black", ...minSquareCSS }}
-          tabIndex={0}
+          style={{
+            ...minSquareCSS,
+            ...highlightCSSBlack(highlightType),
+          }}
+          tabIndex={1}
         />
       )}
     </td>
@@ -142,7 +153,7 @@ const Cell = ({
 const numberCells = (grid: Cell[][]): NumberedCell[][] => {
   let k = 0;
   let l = 0;
-  let lastAcross: number = 0;
+  let lastAcross: number | undefined = 0;
   const lastDown = new Array(grid[0].length).fill(0);
   return grid.map((row, i) =>
     row.map((cell, j) => {
@@ -160,16 +171,19 @@ const numberCells = (grid: Cell[][]): NumberedCell[][] => {
 
       const validAcross = valid(cell, gridValue(i, j - 1), gridValue(i, j + 1));
       const validDown = valid(cell, gridValue(i - 1, j), gridValue(i + 1, j));
-      const validAcross1 = cellBeforeCheck(cell, gridValue(i, j - 1));
-      const validDown1 = cellBeforeCheck(cell, gridValue(i - 1, j));
+      const validAcrossSection = cellBeforeCheck(cell, gridValue(i, j - 1));
+      const validDownSection = cellBeforeCheck(cell, gridValue(i - 1, j));
       const index = validAcross || validDown ? ++k : undefined;
-      validAcross1 || validDown1 ? ++l : undefined;
-      if (validAcross1) {
+      validAcrossSection || validDownSection ? ++l : undefined;
+      if (validAcrossSection) {
         lastAcross = l;
       }
-
-      if (validDown1) {
+      if (validDownSection) {
         lastDown[j] = l;
+      }
+      if (cell.kind == CellKind.BLACK) {
+        lastAcross = undefined;
+        lastDown[j] = undefined;
       }
 
       return {
@@ -187,11 +201,11 @@ const Grid = ({ gridState, clickCell }: GameGrid) => {
   const { highlightedCell, grid, numberedCells } = gridState;
 
   const getHighlightedType = (coords: Coords): HighlightType => {
-    if (
-      grid[highlightedCell.row][highlightedCell.column].kind == CellKind.BLACK
-    ) {
-      return HighlightType.NONE;
-    }
+    // if (
+    //   grid[highlightedCell.row][highlightedCell.column].kind == CellKind.BLACK
+    // ) {
+    //   return HighlightType.NONE;
+    // }
     if (coordsEqual(coords, highlightedCell)) {
       return HighlightType.PRIMARY;
     }
@@ -212,7 +226,7 @@ const Grid = ({ gridState, clickCell }: GameGrid) => {
 
   return (
     <div>
-      <table style={{ borderCollapse: "collapse" }}>
+      <table style={{ borderCollapse: "collapse", borderSpacing: "0px" }}>
         <tbody>
           {grid.map((row, i) => (
             <tr>
@@ -246,12 +260,20 @@ enum ActionKind {
   TOGGLE_DIRECTION,
   WRITE_LETTER,
   CLICK_CELL,
+  FIND_NEXT,
+  MOVE,
 }
 type BackspaceAction = { kind: ActionKind.BACKSPACE };
 
 type ToggleBlackAction = { kind: ActionKind.TOGGLE_BLACK };
 type ToggleCircleAction = { kind: ActionKind.TOGGLE_CIRCLE };
 type ToggleDirectionAction = { kind: ActionKind.TOGGLE_DIRECTION };
+type FindNextAction = { kind: ActionKind.FIND_NEXT };
+type MoveAction = {
+  kind: ActionKind.MOVE;
+  orientation: CrosswordOrientation;
+  direction: Direction;
+};
 
 type WriteLetterAction = {
   kind: ActionKind.WRITE_LETTER;
@@ -266,7 +288,9 @@ type Action =
   | ToggleCircleAction
   | ToggleDirectionAction
   | WriteLetterAction
-  | ClickCellAction;
+  | ClickCellAction
+  | FindNextAction
+  | MoveAction;
 
 const defaultGrid = [
   [
@@ -388,11 +412,7 @@ const Game = () => {
             case CellKind.BLACK:
               return emptyInputCell();
             case CellKind.INPUT:
-              const content = cell.content.substring(
-                0,
-                cell.content.length - 1
-              );
-              return { ...cell, content };
+              return { ...cell, content: "" };
           }
         });
 
@@ -403,7 +423,13 @@ const Game = () => {
         });
       case ActionKind.TOGGLE_BLACK:
         updateCell(highlightedCell, toggleKind);
-        return { ...gridState, numberedCells: numberCells(grid) };
+        return reducerHelper({
+          numberedCells: numberCells(grid),
+          highlightedCell: {
+            ...highlightedCell,
+            ...moveDirection(Direction.FORWARDS),
+          },
+        });
 
       case ActionKind.TOGGLE_CIRCLE:
         updateInputCell(highlightedCell, (cell) => {
@@ -436,6 +462,14 @@ const Game = () => {
             ...action.coords,
           });
         }
+      case ActionKind.MOVE:
+        if (action.orientation != highlightedCell.direction) {
+          return toggleDirection();
+        } else {
+          return highlightedCellHelper({ ...moveDirection(action.direction) });
+        }
+      case ActionKind.FIND_NEXT:
+      // TODO
       default:
         return gridState;
     }
@@ -456,19 +490,43 @@ const Game = () => {
     if (ev.key === ",") {
       dispatch({ kind: ActionKind.TOGGLE_CIRCLE });
     }
-    if (/^[A-Za-z ]{1}$/.test(ev.key)) {
+    if (/^[A-Za-z]{1}$/.test(ev.key)) {
       dispatch({
         kind: ActionKind.WRITE_LETTER,
-        letter: ev.key,
+        letter: ev.key == " " ? "" : ev.key,
         rebus: ev.shiftKey,
+      });
+    }
+    if (ev.key == " ") {
+      dispatch({
+        kind: ActionKind.TOGGLE_DIRECTION,
+      });
+    }
+    if (ev.key === "Tab") {
+      dispatch({
+        kind: ActionKind.FIND_NEXT,
+      });
+    }
+    const dirMap: { [key: string]: [CrosswordOrientation, Direction] } = {
+      ArrowUp: [CrosswordOrientation.DOWN, Direction.BACKWARDS],
+      ArrowDown: [CrosswordOrientation.DOWN, Direction.FORWARDS],
+      ArrowLeft: [CrosswordOrientation.ACROSS, Direction.BACKWARDS],
+      ArrowRight: [CrosswordOrientation.ACROSS, Direction.FORWARDS],
+    };
+    if (ev.key in dirMap) {
+      const [orientation, direction] = dirMap[ev.key];
+      dispatch({
+        kind: ActionKind.MOVE,
+        orientation,
+        direction,
       });
     }
   };
 
   const clickCell = (coords: Coords) => {
-    if (grid.grid[coords.row][coords.column].kind === CellKind.BLACK) {
-      return;
-    }
+    // if (grid.grid[coords.row][coords.column].kind === CellKind.BLACK) {
+    //   return;
+    // }
     dispatch({
       kind: ActionKind.CLICK_CELL,
       coords,
