@@ -1,4 +1,4 @@
-enum CellKind {
+export enum CellKind {
   BLACK,
   INPUT,
 }
@@ -13,7 +13,7 @@ type InputCell = {
 type BlackCell = { kind: CellKind.BLACK };
 
 type Cell = InputCell | BlackCell;
-enum HighlightedType {
+export enum HighlightedType {
   PRIMARY,
   SECONDARY,
   NONE,
@@ -23,7 +23,7 @@ type Coords = {
   row: number;
   column: number;
 };
-type HighlightedCell = Coords & { direction: CrosswordOrientation };
+type HighlightedCell = Coords & { orientation: CrosswordOrientation };
 
 type NumberedCell = {
   validAcross: boolean;
@@ -45,11 +45,22 @@ type GameGrid = {
   clickCell: (coords: Coords) => void;
 };
 
-enum CrosswordOrientation {
+export enum CrosswordOrientation {
   ACROSS,
   DOWN,
 }
-enum Direction {
+export enum Direction {
   FORWARDS,
   BACKWARDS,
 }
+
+export type {
+  GameGrid,
+  GridState,
+  NumberedCell,
+  HighlightedCell,
+  Coords,
+  Cell,
+  BlackCell,
+  InputCell,
+};

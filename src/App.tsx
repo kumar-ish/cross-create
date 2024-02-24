@@ -7,20 +7,39 @@ import {
 import "./App.css";
 import GridWrapper from "./GridWrapper";
 
-const Cell = ({
+import reducer, { handleClickCell, initialState } from "./reducer";
+import {
+  CellKind,
+  Coords,
+  CrosswordOrientation,
+  GameGrid,
+  Cell,
+} from "./types";
+import { coordsEqual } from "./grid";
+
+enum HighlightType {
+  NONE,
+  PRIMARY,
+  SECONDARY,
+}
+const cellSize = 50;
+
+const GridCell = ({
   cell,
   highlightType,
   onClick,
+  wordIndex,
 }: {
   cell: Cell;
   highlightType: HighlightType;
   onClick: () => void;
+  wordIndex?: number;
 }) => {
   const minSquareCSS: CSSProperties = {
-    minWidth: "25px",
-    minHeight: "25px",
-    maxWidth: "25px",
-    maxHeight: "25px",
+    minWidth: cellSize,
+    minHeight: cellSize,
+    maxWidth: cellSize,
+    maxHeight: cellSize,
     outline: "solid black",
   };
   const highlightCSSInput = (highlightType: HighlightType): CSSProperties => {
@@ -28,9 +47,9 @@ const Cell = ({
       case HighlightType.NONE:
         return {};
       case HighlightType.PRIMARY:
-        return { backgroundColor: "lightpink" };
-      case HighlightType.SECONDARY:
         return { backgroundColor: "hotpink" };
+      case HighlightType.SECONDARY:
+        return { backgroundColor: "lightpink" };
     }
   };
 
@@ -45,29 +64,77 @@ const Cell = ({
     }
   };
 
+  const hightlightCSS = (cell: Cell, highlight: HighlightType) => {
+    if (cell.kind === CellKind.BLACK) {
+      return highlightCSSBlack(highlight);
+    } else {
+      return highlightCSSInput(highlight);
+    }
+  };
+
+  const WordIndexStyle: CSSProperties = {
+    gridArea: "1 / 1 / 2 / 2",
+    textAlign: "left",
+    fontSize: "12px",
+    marginLeft: "1px",
+    lineHeight: `${110}%`,
+  };
+
+  const CircleStyle: CSSProperties = {
+    gridArea: "1 / 1 / 2 / 2",
+    border: "0px solid black",
+    // TODO: change this
+    height: cellSize - 4,
+    width: cellSize - 4,
+    borderRadius: "50%",
+  };
+
   return (
-    <td>
+    <td
+      style={{
+        padding: "0px",
+        ...hightlightCSS(cell, highlightType),
+        outline: "solid black",
+        borderSpacing: "0px",
+        border: "1px solid black", // Add thick border
+      }}
+      onClick={onClick}
+      tabIndex={0}
+    >
       {cell.kind === CellKind.INPUT ? (
         <div
-          onClick={onClick}
           style={{
-            ...minSquareCSS,
-            ...highlightCSSInput(highlightType),
-            fontSize: `${100 / Math.sqrt(cell.content.length)}%`,
-            lineHeight: `${Math.sqrt(cell.content.length) * 150}%`,
+            display: "grid",
           }}
-          tabIndex={0}
         >
-          {cell.content}
+          <div
+            style={{
+              ...minSquareCSS,
+              fontSize: `${200 / Math.sqrt(cell.content.length)}%`,
+              lineHeight: `${Math.sqrt(cell.content.length) * 160}%`,
+              gridArea: "1 / 1 / 2 / 2",
+              overflow: "hidden",
+              clipPath: "50%",
+            }}
+          >
+            {cell.content}
+          </div>
+          <div style={WordIndexStyle} hidden={!wordIndex}>
+            {" "}
+            {wordIndex}
+          </div>
+          {/* This is number */}
+
+          <div hidden={!cell.circled} style={CircleStyle}>
+            {}
+          </div>
         </div>
       ) : (
         <div
-          onClick={onClick}
           style={{
             ...minSquareCSS,
             ...highlightCSSBlack(highlightType),
           }}
-          tabIndex={1}
         />
       )}
     </td>
@@ -91,9 +158,9 @@ const Grid = ({ gridState, clickCell }: GameGrid) => {
     const desiredCell = numberedCells[coords.row][coords.column];
 
     if (
-      (highlightedCell.direction === CrosswordOrientation.ACROSS &&
+      (highlightedCell.orientation === CrosswordOrientation.ACROSS &&
         highlightCell.acrossWordIndex === desiredCell.acrossWordIndex) ||
-      (highlightedCell.direction === CrosswordOrientation.DOWN &&
+      (highlightedCell.orientation === CrosswordOrientation.DOWN &&
         highlightCell.downWordIndex === desiredCell.downWordIndex)
     ) {
       return HighlightType.SECONDARY;
@@ -101,17 +168,29 @@ const Grid = ({ gridState, clickCell }: GameGrid) => {
     return HighlightType.NONE;
   };
 
+  const getWordIndex = (coords: Coords) => {
+    const { row, column } = coords;
+    return numberedCells[row][column].index;
+  };
+
   return (
     <div>
-      <table style={{ borderCollapse: "collapse", borderSpacing: "0px" }}>
+      <table
+        style={{
+          // borderCollapse: "collapse",
+          borderSpacing: "1px",
+          border: "2px solid black",
+        }}
+      >
         <tbody>
-          {grid.map((row, i) => (
+          {grid.map((cells, row) => (
             <tr>
-              {row.map((cell, j) => (
-                <Cell
+              {cells.map((cell, column) => (
+                <GridCell
                   cell={cell}
-                  highlightType={getHighlightedType({ row: i, column: j })}
-                  onClick={() => clickCell({ row: i, column: j })}
+                  highlightType={getHighlightedType({ row, column })}
+                  onClick={() => clickCell({ row, column })}
+                  wordIndex={getWordIndex({ row, column })}
                 />
               ))}
             </tr>
@@ -126,10 +205,7 @@ const Game = () => {
   const [grid, dispatch] = useReducer(reducer, initialState);
 
   const clickCell = (coords: Coords) => {
-    dispatch({
-      kind: ActionKind.CLICK_CELL,
-      coords,
-    });
+    handleClickCell(dispatch, coords);
   };
   return (
     <>

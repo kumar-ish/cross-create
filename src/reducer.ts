@@ -1,3 +1,17 @@
+import { coordsEqual, numberCells } from "./grid";
+import { defaultGrid } from "./grid";
+import {
+  BlackCell,
+  Cell,
+  CellKind,
+  Coords,
+  CrosswordOrientation,
+  Direction,
+  GridState,
+  HighlightedCell,
+  InputCell,
+} from "./types";
+
 enum ActionKind {
   BACKSPACE,
   TOGGLE_BLACK,
@@ -37,16 +51,12 @@ type Action =
   | FindNextAction
   | MoveAction;
 
+type ActionDispatcher = (_: Action) => void;
+
 const defaultHighlight: HighlightedCell = {
   row: 0,
   column: 0,
-  direction: CrosswordOrientation.ACROSS,
-};
-
-const initialState: GridState = {
-  grid: defaultGrid,
-  highlightedCell: defaultHighlight,
-  numberedCells: numberCells(defaultGrid),
+  orientation: CrosswordOrientation.ACROSS,
 };
 
 const emptyInputCell = (): InputCell => ({
@@ -57,6 +67,31 @@ const emptyInputCell = (): InputCell => ({
 
 const emptyBlackCell = (): BlackCell => ({ kind: CellKind.BLACK });
 
+const generateRandomGrid = (
+  size: number = 8,
+  probabilityBlack: number = 0.12
+): GridState => {
+  const generatedGrid = Array.from({ length: size }, (r) =>
+    Array.from({ length: size }, (e) =>
+      Math.random() < probabilityBlack
+        ? emptyBlackCell()
+        : {
+            content: "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[
+              Math.floor(Math.random() * 26)
+            ],
+            circled: false,
+            kind: CellKind.INPUT,
+          }
+    )
+  );
+  return {
+    grid: generatedGrid,
+    highlightedCell: defaultHighlight,
+    numberedCells: numberCells(generatedGrid),
+  };
+};
+const initialState: GridState = generateRandomGrid();
+
 const toggleKind = (cell: Cell) => {
   switch (cell.kind) {
     case CellKind.BLACK:
@@ -64,10 +99,6 @@ const toggleKind = (cell: Cell) => {
     case CellKind.INPUT:
       return emptyBlackCell();
   }
-};
-
-const coordsEqual = (c1: Coords, c2: Coords) => {
-  return c1.column === c2.column && c1.row === c2.row;
 };
 
 const cycle = (dir: CrosswordOrientation) => {
@@ -105,7 +136,7 @@ const reducer = (gridState: GridState, action: Action): GridState => {
 
   const moveDirection = (
     direction: Direction,
-    orientation: CrosswordOrientation = highlightedCell.direction
+    orientation: CrosswordOrientation = highlightedCell.orientation
   ) => {
     let { row, column } = highlightedCell;
     const multiplier = (() => {
@@ -146,7 +177,7 @@ const reducer = (gridState: GridState, action: Action): GridState => {
 
   const toggleDirection = () =>
     highlightedCellHelper({
-      direction: cycle(highlightedCell.direction),
+      orientation: cycle(highlightedCell.orientation),
     });
 
   switch (action.kind) {
@@ -176,6 +207,7 @@ const reducer = (gridState: GridState, action: Action): GridState => {
       });
 
     case ActionKind.TOGGLE_CIRCLE:
+      console.log(highlightedCell);
       updateInputCell(highlightedCell, (cell) => {
         return { ...cell, circled: !cell.circled };
       });
@@ -183,19 +215,27 @@ const reducer = (gridState: GridState, action: Action): GridState => {
     case ActionKind.TOGGLE_DIRECTION:
       return toggleDirection();
     case ActionKind.WRITE_LETTER:
-      const allCaps = action.letter.toUpperCase();
+      const allCaps = action.letter === " " ? "" : action.letter.toUpperCase();
 
-      updateInputCell(highlightedCell, (c) => {
-        return {
-          ...c,
-          content: action.rebus ? c.content + allCaps : allCaps,
-        };
+      updateCell(highlightedCell, (c) => {
+        switch (c.kind) {
+          case CellKind.BLACK:
+            return { ...emptyInputCell(), content: allCaps };
+
+          case CellKind.INPUT:
+            return {
+              ...c,
+              content: action.rebus ? c.content + allCaps : allCaps,
+            };
+        }
       });
       return reducerHelper({
         highlightedCell: {
           ...highlightedCell,
           ...(action.rebus ? undefined : moveDirection(Direction.FORWARDS)),
         },
+        // TODO: refactor
+        numberedCells: numberCells(grid),
       });
 
     case ActionKind.CLICK_CELL:
@@ -207,7 +247,16 @@ const reducer = (gridState: GridState, action: Action): GridState => {
         });
       }
     case ActionKind.MOVE:
-      if (action.orientation != highlightedCell.direction) {
+      if (
+        grid[highlightedCell.row][highlightedCell.column].kind ===
+        CellKind.BLACK
+      ) {
+        return highlightedCellHelper({
+          ...moveDirection(action.direction, action.orientation),
+          orientation: action.orientation,
+        });
+      }
+      if (action.orientation != highlightedCell.orientation) {
         return toggleDirection();
       } else {
         return highlightedCellHelper({ ...moveDirection(action.direction) });
@@ -219,19 +268,23 @@ const reducer = (gridState: GridState, action: Action): GridState => {
   }
 };
 
-const handleBackspace = (dispatch: (_: Action) => void) => {
+const handleToggleDirection = (dispatch: ActionDispatcher) => {
+  dispatch({ kind: ActionKind.TOGGLE_DIRECTION });
+};
+
+const handleBackspace = (dispatch: ActionDispatcher) => {
   dispatch({ kind: ActionKind.BACKSPACE });
 };
-const handleToggleBlack = (dispatch: (_: Action) => void) => {
+const handleToggleBlack = (dispatch: ActionDispatcher) => {
   dispatch({ kind: ActionKind.TOGGLE_BLACK });
 };
 
-const handleToggleCircle = (dispatch: (_: Action) => void) => {
+const handleToggleCircle = (dispatch: ActionDispatcher) => {
   dispatch({ kind: ActionKind.TOGGLE_CIRCLE });
 };
 
 const handleWriteLetter = (
-  dispatch: (_: Action) => void,
+  dispatch: ActionDispatcher,
   letter: string,
   rebus: boolean
 ) => {
@@ -241,3 +294,42 @@ const handleWriteLetter = (
     rebus,
   });
 };
+
+const handleMove = (
+  dispatch: ActionDispatcher,
+  orientation: CrosswordOrientation,
+  direction: Direction
+) => {
+  dispatch({
+    kind: ActionKind.MOVE,
+    orientation,
+    direction,
+  });
+};
+
+const handleClickCell = (dispatch: ActionDispatcher, coords: Coords) => {
+  dispatch({
+    kind: ActionKind.CLICK_CELL,
+    coords,
+  });
+};
+
+const handleFindNext = (dispatch: ActionDispatcher) => {
+  dispatch({ kind: ActionKind.FIND_NEXT });
+};
+
+export {
+  handleFindNext,
+  handleMove,
+  handleWriteLetter,
+  handleToggleCircle,
+  handleToggleBlack,
+  handleBackspace,
+  handleToggleDirection,
+  handleClickCell,
+};
+export { emptyBlackCell, generateRandomGrid };
+export { initialState };
+export type { ActionDispatcher };
+
+export default reducer;

@@ -1,30 +1,41 @@
-const GridWrapper = ({ dispatch }: { dispatch: (Action) => void }) => {
+import { KeyboardEventHandler } from "react";
+import {
+  handleFindNext,
+  handleMove,
+  handleWriteLetter,
+  handleToggleCircle,
+  handleToggleBlack,
+  handleBackspace,
+  handleToggleDirection,
+  ActionDispatcher,
+} from "./reducer";
+import { CrosswordOrientation, Direction } from "./types";
+
+const GridWrapper = ({
+  dispatch,
+  children,
+}: {
+  dispatch: ActionDispatcher;
+  children: JSX.Element;
+}) => {
   const handleKey: KeyboardEventHandler<HTMLDivElement> = (ev) => {
     if (ev.code === "Backspace") {
-      dispatch({ kind: ActionKind.BACKSPACE });
+      handleBackspace(dispatch);
     }
     if (ev.key === ".") {
-      dispatch({ kind: ActionKind.TOGGLE_BLACK });
+      handleToggleBlack(dispatch);
     }
     if (ev.key === ",") {
-      dispatch({ kind: ActionKind.TOGGLE_CIRCLE });
+      handleToggleCircle(dispatch);
     }
     if (/^[A-Za-z]{1}$/.test(ev.key)) {
-      dispatch({
-        kind: ActionKind.WRITE_LETTER,
-        letter: ev.key == " " ? "" : ev.key,
-        rebus: ev.shiftKey,
-      });
+      handleWriteLetter(dispatch, ev.key, ev.shiftKey);
     }
     if (ev.key == " ") {
-      dispatch({
-        kind: ActionKind.TOGGLE_DIRECTION,
-      });
+      handleToggleDirection(dispatch);
     }
     if (ev.key === "Tab") {
-      dispatch({
-        kind: ActionKind.FIND_NEXT,
-      });
+      handleFindNext(dispatch);
     }
     const dirMap: { [key: string]: [CrosswordOrientation, Direction] } = {
       ArrowUp: [CrosswordOrientation.DOWN, Direction.BACKWARDS],
@@ -34,15 +45,15 @@ const GridWrapper = ({ dispatch }: { dispatch: (Action) => void }) => {
     };
     if (ev.key in dirMap) {
       const [orientation, direction] = dirMap[ev.key];
-      dispatch({
-        kind: ActionKind.MOVE,
-        orientation,
-        direction,
-      });
+      handleMove(dispatch, orientation, direction);
     }
   };
 
-  return <div onKeyDown={handleKey} tabIndex={0}></div>;
+  return (
+    <div onKeyDown={handleKey} tabIndex={0}>
+      {children}
+    </div>
+  );
 };
 
-export default { GridWrapper };
+export default GridWrapper;

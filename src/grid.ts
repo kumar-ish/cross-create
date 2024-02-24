@@ -1,3 +1,5 @@
+import { Cell, CellKind, Coords, NumberedCell } from "./types";
+
 const defaultGrid = [
   [
     { content: "xx", circled: false, kind: CellKind.BLACK },
@@ -24,6 +26,10 @@ const defaultGrid = [
     { content: "X", circled: false, kind: CellKind.INPUT },
   ],
 ];
+
+const coordsEqual = (c1: Coords, c2: Coords) => {
+  return c1.column === c2.column && c1.row === c2.row;
+};
 
 const numberCells = (grid: Cell[][]): NumberedCell[][] => {
   let k = 0;
@@ -71,3 +77,5 @@ const numberCells = (grid: Cell[][]): NumberedCell[][] => {
     })
   );
 };
+
+export { numberCells, coordsEqual, defaultGrid };
