@@ -20,7 +20,7 @@ const GridWrapper = ({
 }) => {
   const handleKey: KeyboardEventHandler<HTMLDivElement> = (ev) => {
     if (ev.code === "Backspace") {
-      handleBackspace(dispatch);
+      handleBackspace(dispatch, ev.shiftKey);
     }
     if (ev.key === ".") {
       handleToggleBlack(dispatch);
@@ -28,14 +28,15 @@ const GridWrapper = ({
     if (ev.key === ",") {
       handleToggleCircle(dispatch);
     }
-    if (/^[A-Za-z]{1}$/.test(ev.key)) {
+    if (/^[A-Za-zñÑ]{1}$/.test(ev.key)) {
       handleWriteLetter(dispatch, ev.key, ev.shiftKey);
     }
     if (ev.key == " ") {
       handleToggleDirection(dispatch);
     }
     if (ev.key === "Tab") {
-      handleFindNext(dispatch);
+      console.log("tab", ev.shiftKey);
+      handleFindNext(dispatch, ev.shiftKey);
     }
     const dirMap: { [key: string]: [CrosswordOrientation, Direction] } = {
       ArrowUp: [CrosswordOrientation.DOWN, Direction.BACKWARDS],

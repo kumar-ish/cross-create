@@ -1,4 +1,11 @@
-import { Cell, CellKind, Coords, NumberedCell } from "./types";
+import {
+  Cell,
+  CellKind,
+  ClueIndex,
+  Coords,
+  CrosswordOrientation,
+  NumberedCell,
+} from "./types";
 
 const defaultGrid = [
   [
@@ -78,4 +85,71 @@ const numberCells = (grid: Cell[][]): NumberedCell[][] => {
   );
 };
 
-export { numberCells, coordsEqual, defaultGrid };
+const transpose = <T>(grid: T[][]) =>
+  Array.from({ length: grid[0].length }, (_e, i) =>
+    Array.from({ length: grid.length }, (_x, j) => grid[j][i])
+  );
+
+const findWord = (start: number, cells: Cell[]) => {
+  let word = [];
+  for (let i = start; i < cells.length; i++) {
+    let cell = cells[i];
+    switch (cell.kind) {
+      case CellKind.BLACK:
+        return word.join("");
+      case CellKind.INPUT:
+        word.push(cell.content === "" ? "_" : cell.content);
+    }
+  }
+  return word.join("");
+};
+type NumberedCellWithIndex = NumberedCell & Coords;
+
+const findWords = (
+  grid: Cell[][],
+  cells: NumberedCell[][]
+): {
+  [orientation in CrosswordOrientation]: (Coords & ClueIndex)[];
+} => {
+  const flatNumbers: NumberedCellWithIndex[] = cells.flatMap((cells, row) =>
+    cells.map((numberedCell, column) => ({ ...numberedCell, row, column }))
+  );
+  const validAcrosses = flatNumbers.filter((x) => x.validAcross);
+  const validDowns = flatNumbers.filter((x) => x.validDown);
+
+  const acrossWords = validAcrosses.map((cell) =>
+    findWord(cell.column, grid[cell.row])
+  );
+  const downWords = validDowns.map((cell) =>
+    findWord(cell.row, transpose(grid)[cell.column])
+  );
+
+  const map: Record<string, number> = {};
+  const wordToIndex = (word: string) => {
+    if (word in map) {
+      map[word] += 1;
+      return map[word];
+    } else {
+      map[word] = 0;
+      return 0;
+    }
+  };
+
+  const wordsAndIndices = (
+    words: string[],
+    numberedCells: NumberedCellWithIndex[]
+  ) =>
+    words.map((word, i) => ({
+      word,
+      index: wordToIndex(word),
+      ...numberedCells[i],
+    }));
+
+  return {
+    [CrosswordOrientation.ACROSS]: wordsAndIndices(acrossWords, validAcrosses),
+    [CrosswordOrientation.DOWN]: wordsAndIndices(downWords, validDowns),
+  };
+};
+
+export { numberCells, coordsEqual, transpose, findWords };
+export { defaultGrid };

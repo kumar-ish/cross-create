@@ -1,4 +1,4 @@
-import { coordsEqual, numberCells } from "./grid";
+import { coordsEqual, findWords, numberCells } from "./grid";
 import { defaultGrid } from "./grid";
 import {
   BlackCell,
@@ -9,7 +9,10 @@ import {
   Direction,
   GridState,
   HighlightedCell,
+  IndexCell,
   InputCell,
+  NumberedCell,
+  ClueIndex,
 } from "./types";
 
 enum ActionKind {
@@ -21,13 +24,14 @@ enum ActionKind {
   CLICK_CELL,
   FIND_NEXT,
   MOVE,
+  WRITE_CLUE,
 }
-type BackspaceAction = { kind: ActionKind.BACKSPACE };
+type BackspaceAction = { kind: ActionKind.BACKSPACE; rebus: boolean };
 
 type ToggleBlackAction = { kind: ActionKind.TOGGLE_BLACK };
 type ToggleCircleAction = { kind: ActionKind.TOGGLE_CIRCLE };
 type ToggleDirectionAction = { kind: ActionKind.TOGGLE_DIRECTION };
-type FindNextAction = { kind: ActionKind.FIND_NEXT };
+type FindNextAction = { kind: ActionKind.FIND_NEXT; reverse: boolean };
 type MoveAction = {
   kind: ActionKind.MOVE;
   orientation: CrosswordOrientation;
@@ -41,6 +45,11 @@ type WriteLetterAction = {
 };
 type ClickCellAction = { kind: ActionKind.CLICK_CELL; coords: Coords };
 
+type WriteClueAction = {
+  kind: ActionKind.WRITE_CLUE;
+  content: string;
+} & ClueIndex;
+
 type Action =
   | BackspaceAction
   | ToggleBlackAction
@@ -49,7 +58,8 @@ type Action =
   | WriteLetterAction
   | ClickCellAction
   | FindNextAction
-  | MoveAction;
+  | MoveAction
+  | WriteClueAction;
 
 type ActionDispatcher = (_: Action) => void;
 
@@ -68,8 +78,8 @@ const emptyInputCell = (): InputCell => ({
 const emptyBlackCell = (): BlackCell => ({ kind: CellKind.BLACK });
 
 const generateRandomGrid = (
-  size: number = 8,
-  probabilityBlack: number = 0.12
+  size: number = 15,
+  probabilityBlack: number = 0.25
 ): GridState => {
   const generatedGrid = Array.from({ length: size }, (r) =>
     Array.from({ length: size }, (e) =>
@@ -84,10 +94,15 @@ const generateRandomGrid = (
           }
     )
   );
+
+  const numberedCells = numberCells(generatedGrid);
   return {
     grid: generatedGrid,
     highlightedCell: defaultHighlight,
-    numberedCells: numberCells(generatedGrid),
+    numberedCells,
+    words: findWords(generatedGrid, numberedCells),
+
+    clues: new Map(),
   };
 };
 const initialState: GridState = generateRandomGrid();
@@ -122,10 +137,21 @@ const clamp = (num: number, min: number, max: number) => {
 };
 
 const reducer = (gridState: GridState, action: Action): GridState => {
-  const { grid, highlightedCell }: GridState = gridState;
+  const { grid, highlightedCell, numberedCells }: GridState = gridState;
   const reducerHelper = (newState: Partial<GridState>): GridState => {
     return { ...gridState, ...newState };
   };
+  const reducerHelperWithRecomputedWords = (
+    //TODO: think about these types better
+    newState: Partial<GridState>
+  ): GridState => {
+    const state = { ...gridState, ...newState };
+    const numberedCells = numberCells(state.grid);
+    const words = findWords(grid, numberedCells);
+
+    return { ...state, numberedCells, words };
+  };
+
   const highlightedCellHelper = (
     newState: Partial<HighlightedCell>
   ): GridState => {
@@ -187,19 +213,25 @@ const reducer = (gridState: GridState, action: Action): GridState => {
           case CellKind.BLACK:
             return emptyInputCell();
           case CellKind.INPUT:
-            return { ...cell, content: "" };
+            return {
+              ...cell,
+              content: action.rebus
+                ? cell.content.substring(0, cell.content.length - 1)
+                : "",
+            };
         }
       });
 
-      const movedCoords = moveDirection(Direction.BACKWARDS);
-      return reducerHelper({
+      const movedCoords = action.rebus
+        ? highlightedCell
+        : moveDirection(Direction.BACKWARDS);
+
+      return reducerHelperWithRecomputedWords({
         highlightedCell: { ...highlightedCell, ...movedCoords },
-        numberedCells: numberCells(grid),
       });
     case ActionKind.TOGGLE_BLACK:
       updateCell(highlightedCell, toggleKind);
-      return reducerHelper({
-        numberedCells: numberCells(grid),
+      return reducerHelperWithRecomputedWords({
         highlightedCell: {
           ...highlightedCell,
           ...moveDirection(Direction.FORWARDS),
@@ -229,13 +261,11 @@ const reducer = (gridState: GridState, action: Action): GridState => {
             };
         }
       });
-      return reducerHelper({
+      return reducerHelperWithRecomputedWords({
         highlightedCell: {
           ...highlightedCell,
           ...(action.rebus ? undefined : moveDirection(Direction.FORWARDS)),
         },
-        // TODO: refactor
-        numberedCells: numberCells(grid),
       });
 
     case ActionKind.CLICK_CELL:
@@ -262,7 +292,60 @@ const reducer = (gridState: GridState, action: Action): GridState => {
         return highlightedCellHelper({ ...moveDirection(action.direction) });
       }
     case ActionKind.FIND_NEXT:
-    // TODO
+      const findNextCell = (
+        starting: Coords = { ...highlightedCell }
+      ): IndexCell | undefined => {
+        const allCells: IndexCell[] = numberedCells.flatMap((cells, row) =>
+          cells.map((cell, column) => ({ ...cell, row, column }))
+        );
+
+        const acrossCells = allCells
+          .filter((cell) => cell.validAcross)
+          .map((cell) => ({
+            ...cell,
+            orientation: CrosswordOrientation.ACROSS,
+          }));
+        const downCells = allCells
+          .filter((cell) => cell.validDown)
+          .map((cell) => ({ ...cell, orientation: CrosswordOrientation.DOWN }));
+
+        type Xd = IndexCell & { orientation: CrosswordOrientation };
+
+        const findNext = (sameOrientation: Xd[], oppositeOrientation: Xd[]) => {
+          if (action.reverse) {
+            sameOrientation.reverse();
+            oppositeOrientation.reverse();
+          }
+          return (
+            sameOrientation.find((cell) => {
+              if (action.reverse) {
+                return (
+                  (cell.row === starting.row &&
+                    cell.column < starting.column) ||
+                  cell.row < starting.row
+                );
+              } else {
+                return (
+                  cell.row > starting.row ||
+                  (cell.row === starting.row && cell.column > starting.column)
+                );
+              }
+            }) ??
+            oppositeOrientation[0] ??
+            sameOrientation[0]
+          );
+        };
+
+        // TODO(somebody): refactor
+        switch (highlightedCell.orientation) {
+          case CrosswordOrientation.ACROSS:
+            return findNext(acrossCells, downCells);
+          case CrosswordOrientation.DOWN:
+            return findNext(downCells, acrossCells);
+        }
+      };
+
+      return highlightedCellHelper({ ...findNextCell() });
     default:
       return gridState;
   }
@@ -272,9 +355,10 @@ const handleToggleDirection = (dispatch: ActionDispatcher) => {
   dispatch({ kind: ActionKind.TOGGLE_DIRECTION });
 };
 
-const handleBackspace = (dispatch: ActionDispatcher) => {
-  dispatch({ kind: ActionKind.BACKSPACE });
+const handleBackspace = (dispatch: ActionDispatcher, rebus: boolean) => {
+  dispatch({ kind: ActionKind.BACKSPACE, rebus });
 };
+
 const handleToggleBlack = (dispatch: ActionDispatcher) => {
   dispatch({ kind: ActionKind.TOGGLE_BLACK });
 };
@@ -314,8 +398,16 @@ const handleClickCell = (dispatch: ActionDispatcher, coords: Coords) => {
   });
 };
 
-const handleFindNext = (dispatch: ActionDispatcher) => {
-  dispatch({ kind: ActionKind.FIND_NEXT });
+const handleFindNext = (dispatch: ActionDispatcher, reverse: boolean) => {
+  dispatch({ kind: ActionKind.FIND_NEXT, reverse });
+};
+
+const handleWriteClue = (
+  dispatch: ActionDispatcher,
+  index: ClueIndex,
+  content: string
+) => {
+  dispatch({ ...index, kind: ActionKind.WRITE_CLUE, content });
 };
 
 export {
@@ -327,6 +419,7 @@ export {
   handleBackspace,
   handleToggleDirection,
   handleClickCell,
+  handleWriteClue,
 };
 export { emptyBlackCell, generateRandomGrid };
 export { initialState };

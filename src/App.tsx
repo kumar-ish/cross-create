@@ -7,22 +7,29 @@ import {
 import "./App.css";
 import GridWrapper from "./GridWrapper";
 
-import reducer, { handleClickCell, initialState } from "./reducer";
+import reducer, {
+  handleClickCell,
+  handleWriteClue,
+  initialState,
+} from "./reducer";
 import {
   CellKind,
   Coords,
   CrosswordOrientation,
   GameGrid,
   Cell,
+  NumberedCell,
+  ClueIndex,
 } from "./types";
 import { coordsEqual } from "./grid";
+import styled from "styled-components";
 
 enum HighlightType {
   NONE,
   PRIMARY,
   SECONDARY,
 }
-const cellSize = 50;
+const cellSize = 40; // TODO: was 50 before
 
 const GridCell = ({
   cell,
@@ -42,34 +49,67 @@ const GridCell = ({
     maxHeight: cellSize,
     outline: "solid black",
   };
-  const highlightCSSInput = (highlightType: HighlightType): CSSProperties => {
-    switch (highlightType) {
-      case HighlightType.NONE:
-        return {};
-      case HighlightType.PRIMARY:
-        return { backgroundColor: "hotpink" };
-      case HighlightType.SECONDARY:
-        return { backgroundColor: "lightpink" };
-    }
-  };
+  enum HighlightStyle {
+    AQUAMAREINISH,
+    GIRL,
+    NEUTRAL,
+  }
 
-  const highlightCSSBlack = (highlightType: HighlightType): CSSProperties => {
-    switch (highlightType) {
-      case HighlightType.PRIMARY:
-        return {
+  const highlightStyles: {
+    [style in HighlightStyle]: {
+      [kind in CellKind]: {
+        [type in HighlightType]: CSSProperties;
+      };
+    };
+  } = {
+    [HighlightStyle.AQUAMAREINISH]: {
+      [CellKind.BLACK]: {
+        [HighlightType.NONE]: { backgroundColor: "black" },
+        [HighlightType.PRIMARY]: {
+          background: "linear-gradient(to right, #238d91, #7bbe5ee7)",
+        },
+        [HighlightType.SECONDARY]: { backgroundColor: "black" },
+      },
+      [CellKind.INPUT]: {
+        [HighlightType.NONE]: {},
+        [HighlightType.PRIMARY]: { backgroundColor: "#238d91" },
+        [HighlightType.SECONDARY]: { backgroundColor: "#7bbe5ee7" },
+      },
+    },
+    [HighlightStyle.GIRL]: {
+      [CellKind.BLACK]: {
+        [HighlightType.NONE]: { backgroundColor: "black" },
+        [HighlightType.PRIMARY]: {
           background: "linear-gradient(to right, hotpink, lightpink)",
-        };
-      default:
-        return { backgroundColor: "black" };
-    }
+        },
+        [HighlightType.SECONDARY]: { backgroundColor: "black" },
+      },
+      [CellKind.INPUT]: {
+        [HighlightType.NONE]: {},
+        [HighlightType.PRIMARY]: { backgroundColor: "hotpink" },
+        [HighlightType.SECONDARY]: { backgroundColor: "lightpink" },
+      },
+    },
+    [HighlightStyle.NEUTRAL]: {
+      [CellKind.BLACK]: {
+        [HighlightType.NONE]: {},
+        [HighlightType.PRIMARY]: {},
+        [HighlightType.SECONDARY]: {},
+      },
+      [CellKind.INPUT]: {
+        [HighlightType.NONE]: {},
+        [HighlightType.PRIMARY]: {},
+        [HighlightType.SECONDARY]: {},
+      },
+    },
   };
 
-  const hightlightCSS = (cell: Cell, highlight: HighlightType) => {
-    if (cell.kind === CellKind.BLACK) {
-      return highlightCSSBlack(highlight);
-    } else {
-      return highlightCSSInput(highlight);
-    }
+  const highlightCSS = (
+    cell: Cell,
+    highlight: HighlightType,
+    style: HighlightStyle = HighlightStyle.AQUAMAREINISH
+  ) => {
+    return highlightStyles[style][cell.kind][highlight];
   };
 
   const WordIndexStyle: CSSProperties = {
@@ -82,7 +122,7 @@ const GridCell = ({
 
   const CircleStyle: CSSProperties = {
     gridArea: "1 / 1 / 2 / 2",
-    border: "0px solid black",
+    border: "2px solid black",
     // TODO: change this
     height: cellSize - 4,
     width: cellSize - 4,
@@ -93,7 +133,7 @@ const GridCell = ({
     <td
       style={{
         padding: "0px",
-        ...hightlightCSS(cell, highlightType),
+        ...highlightCSS(cell, highlightType),
         outline: "solid black",
         borderSpacing: "0px",
         border: "1px solid black", // Add thick border
@@ -110,8 +150,8 @@ const GridCell = ({
           <div
             style={{
               ...minSquareCSS,
-              fontSize: `${200 / Math.sqrt(cell.content.length)}%`,
-              lineHeight: `${Math.sqrt(cell.content.length) * 160}%`,
+              fontSize: `${180 / Math.sqrt(cell.content.length)}%`,
+              lineHeight: `${Math.sqrt(cell.content.length) * 165}%`,
               gridArea: "1 / 1 / 2 / 2",
               overflow: "hidden",
               clipPath: "50%",
@@ -133,13 +173,17 @@ const GridCell = ({
         <div
           style={{
             ...minSquareCSS,
-            ...highlightCSSBlack(highlightType),
           }}
         />
       )}
     </td>
   );
 };
+
+const GridTable = styled.table`
+  border-spacing: 1px;
+  border: 2px solid black;
+`;
 
 const Grid = ({ gridState, clickCell }: GameGrid) => {
   const { highlightedCell, grid, numberedCells } = gridState;
@@ -175,13 +219,7 @@ const Grid = ({ gridState, clickCell }: GameGrid) => {
 
   return (
     <div>
-      <table
-        style={{
-          // borderCollapse: "collapse",
-          borderSpacing: "1px",
-          border: "2px solid black",
-        }}
-      >
+      <GridTable>
         <tbody>
           {grid.map((cells, row) => (
             <tr>
@@ -196,7 +234,103 @@ const Grid = ({ gridState, clickCell }: GameGrid) => {
             </tr>
           ))}
         </tbody>
-      </table>
+      </GridTable>
+    </div>
+  );
+};
+
+const ClueIndexDiv = styled.div`
+  text-align: center;
+`;
+
+const Clue = ({
+  index,
+  across,
+  word,
+}: {
+  index: number;
+  across: boolean;
+  word: string;
+  existingClue?: string;
+}) => {
+  return (
+    // TODO: fix the spacing between words
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "40px 40px",
+        paddingTop: "1px",
+        paddingBottom: "1px",
+      }}
+    >
+      <ClueIndexDiv>{index + (across ? "A" : "D")}</ClueIndexDiv>
+
+      <div
+        style={{
+          marginLeft: "1px",
+        }}
+      >
+        <div>
+          <b>{word}</b>
+        </div>
+        <div
+          style={{ backgroundColor: "lightgray", width: "200px" }}
+          hidden={word.indexOf("_") !== -1}
+        >
+          <input
+            contentEditable={true}
+            onChange={(x) => {}}
+            style={{
+              display: "inline-block",
+              border: "none",
+              fontFamily: "inherit",
+              fontSize: "inherit",
+              padding: "none",
+              width: "auto",
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const Clues = (props: {
+  // TODO: stinky silly
+  words: (Coords & ClueIndex)[];
+  across: boolean;
+}) => {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        // fontFamily: "Roboto Mono",
+        maxHeight: "350px",
+        width: "300px",
+      }}
+    >
+      <div
+        style={{
+          minWidth: "175px",
+          marginLeft: "10px",
+          overflow: "scroll",
+          border: "3px solid black",
+          display: "grid",
+        }}
+      >
+        <p style={{ textAlign: "center", alignItems: "center", margin: "3px" }}>
+          <u>{props.across ? "ACROSSES" : "DOWNS"}</u>
+        </p>
+        <div>
+          {props.words.map((x) => {
+            // const word = props.across
+            //   ? findWord(x.j, grid.grid[x.i])
+            //   : findWord(x.i, transposed[x.j]);
+            return <Clue index={x.index} across={props.across} word={x.word} />;
+          })}
+        </div>
+      </div>
     </div>
   );
 };
@@ -207,16 +341,29 @@ const Game = () => {
   const clickCell = (coords: Coords) => {
     handleClickCell(dispatch, coords);
   };
+
   return (
-    <>
+    <div style={{ display: "flex", maxHeight: "650px", alignItems: "center" }}>
       <GridWrapper dispatch={dispatch}>
         <Grid gridState={grid} clickCell={clickCell} />
       </GridWrapper>
       {/* <Clues grid/> */}
-      <div>
-        <div></div>
+      <div
+        style={{
+          textAlign: "left",
+          display: "flex",
+          flexDirection: "column",
+          width: "200px",
+          // maxHeight: "300px",
+          gap: "10px",
+        }}
+      >
+        {/* <CluesWrapper> */}
+        <Clues words={grid.words[0]} across={true} />
+        <Clues words={grid.words[1]} across={false} />
+        {/* </CluesWrapper> */}
       </div>
-    </>
+    </div>
   );
 };
 
@@ -231,3 +378,26 @@ function App() {
 }
 
 export default App;
+
+//   let time: number;
+//  const randomSquareHopper = () => {
+//    window.onload = resetTimer;
+//    // DOM Events
+//    document.onmousemove = resetTimer;
+//    document.onkeydown = resetTimer;
+//
+//    function reset() {
+//      const blackcells = grid.grid
+//        .flatMap((x, i) => x.map((y, j) => ({ i, j, ...y })))
+//        .filter((x) => x.kind === CellKind.BLACK);
+//      const picked = blackcells[Math.floor(Math.random() * blackcells.length)];
+//      handleClickCell(dispatch, { row: picked.i, column: picked.j });
+//    }
+//
+//    function resetTimer() {
+//      clearTimeout(time);
+//      time = setInterval(reset, 1000);
+//      // 1000 milliseconds = 1 second
+//    }
+//  };
+// randomSquareHopper();
